@@ -67,7 +67,7 @@ async function getRecentEmails(auth: OAuth2Client, n:number){
 const oauth2Client = new OAuth2Client(
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_SECRET,
-    "http://localhost:3000/backend/home"
+    `${process.env.NEXT_PUBLIC_WEBSITE_URL as string}/backend/home`
 );
 
 console.log(oauth2Client.credentials);
@@ -107,6 +107,10 @@ bot.on('message', async (msg: Message) =>{
     const messageText: string= msg.text as string;
 
     console.log('chatID: ', chatID);
+
+    if (messageText.startsWith('/start')){
+        bot.sendMessage(chatID, 'enter ? <no of mails> to get result.');
+    }
 
     if (messageText.startsWith('?')){
         const info =messageText.split(' ');
