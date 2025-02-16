@@ -4,16 +4,6 @@ import { OAuth2Client } from 'google-auth-library';
 import { NextRequest, NextResponse } from 'next/server';
 import TelegramBot, { Message } from 'node-telegram-bot-api';
 
-
-const KEYFILE = {
-    "client_id": process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-    "project_id": process.env.NEXT_PUBLIC_GOOGLE_PROJECT_ID,
-    "auth_uri": process.env.NEXT_PUBLIC_GOOGLE_AUTH_URI,
-    "token_uri": process.env.NEXT_PUBLIC_GOOGLE_TOKEN_URI,
-    "auth_provider_x509_cert_url": process.env.NEXT_PUBLIC_GOOGLE_AUTH_PROVIDER_CERT_URL,
-    "client_secret": process.env.NEXT_PUBLIC_GOOGLE_CLIENT_SECRET
-}
-
 const SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly'
 ];
@@ -27,10 +17,6 @@ async function getRecentEmails(auth: OAuth2Client, n:number){
             maxResults: n, // Adjust this number as needed
             q: 'category:primary' // You can modify this query to filter emails
         });
-
-        if (!messageList.data.messages) {
-            return [];
-        }
 
         const gmails = messageList.data.messages || [];
         const result = [];
@@ -100,7 +86,15 @@ export async function GET(request: NextRequest){
     }
 }
 
-const bot = new TelegramBot(process.env.NEXT_PUBLIC_TELEGRAM_TOKEN as string, {polling: true});
+const bot = new TelegramBot(process.env.NEXT_PUBLIC_TELEGRAM_TOKEN as string, {webHook: { port: 443 }});
+
+bot.setWebHook(`${process.env.NEXT_PUBLIC_WEBSITE_URL}/backend/home`, {
+    secret_token: `${process.env.NEXT_PUBLIC_TELEGRAM_SECRET_TOKEN}`
+}).then(value=>{
+    console.log('Webhook prolly setup success: ', value);
+}).catch(error=>{
+    console.log('Webhook failed: ', error);
+})
 
 bot.on('message', async (msg: Message) =>{
     const chatID: number = msg.chat.id;
@@ -113,6 +107,7 @@ bot.on('message', async (msg: Message) =>{
     }
 
     if (messageText.startsWith('?')){
+        bot.sendMessage(chatID, 'Processing...');
         const info =messageText.split(' ');
         if (info.length>1 && info[1].toUpperCase()==info[1].toLowerCase()){
             const data_raw = await getRecentEmails(oauth2Client, info[1] as unknown as number);
@@ -128,4 +123,23 @@ bot.on('message', async (msg: Message) =>{
             bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });
         }
     }
-})
+});
+
+export async function POST(request: NextRequest){
+    try{
+        const telegramSecret = request.headers.get('x-telegram-bot-api-secret-token');
+
+        if (telegramSecret!=process.env.NEXT_PUBLIC_TELEGRAM_SECRET_TOKEN){
+            console.error('Invalid secret token received');
+            return NextResponse.json('Invalid secret token recieved', {status: 401});
+        }
+
+        const update = await request.json();
+        console.log('update: ', update);
+        bot.processUpdate(update);
+        return NextResponse.json('done sm', {status: 200});
+    } catch(error){
+        console.log('Error in updating: ', error);
+        return NextResponse.json('Error occurred.', {status: 500});
+    }
+}
