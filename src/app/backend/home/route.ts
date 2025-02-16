@@ -86,7 +86,7 @@ export async function GET(request: NextRequest){
     }
 }
 
-const bot = new TelegramBot(process.env.NEXT_PUBLIC_TELEGRAM_TOKEN as string, {webHook: { port: 443 }});
+const bot = new TelegramBot(process.env.NEXT_PUBLIC_TELEGRAM_TOKEN as string, {webHook: { port: Number(process.env.NEXT_PUBLIC_TELEGRAM_PORT??'') }});
 
 bot.setWebHook(`${process.env.NEXT_PUBLIC_WEBSITE_URL}/backend/home`, {
     secret_token: `${process.env.NEXT_PUBLIC_TELEGRAM_SECRET_TOKEN}`
