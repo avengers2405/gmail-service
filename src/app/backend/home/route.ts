@@ -4,12 +4,17 @@ import { OAuth2Client } from 'google-auth-library';
 import { NextRequest, NextResponse } from 'next/server';
 import TelegramBot, { Message } from 'node-telegram-bot-api';
 import {createClient} from 'redis';
+import { setMaxIdleHTTPParsers } from 'http';
 
 const SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly'
 ];
 
 const redis = await createClient({url: process.env.NEXT_PUBLIC_REDIS_URL}).connect();
+
+async function sleep(ms: number){
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function getRecentEmails(auth: OAuth2Client, n:number){
     const gmail = google.gmail({ version: 'v1', auth });
@@ -108,36 +113,42 @@ bot.setWebHook(`${process.env.NEXT_PUBLIC_WEBSITE_URL}/backend/home`, {
     console.log('Webhook prolly setup success: ', value);
 }).catch(error=>{
     console.log('Webhook failed: ', error);
-})
+});
 
+var work_done=false;
 bot.on('message', async (msg: Message) =>{
-    const chatID: number = msg.chat.id;
-    const messageText: string= msg.text as string;
-    oauth2Client.setCredentials(JSON.parse((await redis.get('oauthclient'))??'{}'));
+    try{
+        const chatID: number = msg.chat.id;
+        const messageText: string= msg.text as string;
+        oauth2Client.setCredentials(JSON.parse((await redis.get('oauthclient'))??'{}'));
 
-    console.log('chatID: ', chatID);
+        console.log('chatID: ', chatID);
 
-    if (messageText.startsWith('/start')){
-        bot.sendMessage(chatID, 'enter ? <no of mails> to get result.');
-    }
-
-    if (messageText.startsWith('?')){
-        bot.sendMessage(chatID, 'Processing...');
-        const info =messageText.split(' ');
-        if (info.length>1 && info[1].toUpperCase()==info[1].toLowerCase()){
-            const data_raw = await getRecentEmails(oauth2Client, info[1] as unknown as number);
-            // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
-            // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
-            for (var i=0; i<(info[1] as unknown as number); i+=5){
-                const data = data_raw.slice(i, i+5);
-                bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });            }
-        } else {
-            const data = await getRecentEmails(oauth2Client, 7);
-            // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
-            // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
-            bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });
+        if (messageText.startsWith('/start')){
+            bot.sendMessage(chatID, 'enter ? <no of mails> to get result.');
         }
+
+        if (messageText.startsWith('?')){
+            bot.sendMessage(chatID, 'Processing...');
+            const info =messageText.split(' ');
+            if (info.length>1 && info[1].toUpperCase()==info[1].toLowerCase()){
+                const data_raw = await getRecentEmails(oauth2Client, info[1] as unknown as number);
+                // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
+                // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
+                for (var i=0; i<(info[1] as unknown as number); i+=5){
+                    const data = data_raw.slice(i, i+5);
+                    bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });            }
+            } else {
+                const data = await getRecentEmails(oauth2Client, 7);
+                // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
+                // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
+                bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });
+            }
+        }
+    } catch(error){
+        console.log('Error in bot function: ', error);
     }
+    work_done=true;
 });
 
 export async function POST(request: NextRequest){
@@ -152,6 +163,8 @@ export async function POST(request: NextRequest){
         const update = await request.json();
         console.log('update: ', update);
         bot.processUpdate(update);
+        while (!work_done) await sleep(50);
+        work_done=false;
         return NextResponse.json('done sm', {status: 200});
     } catch(error){
         console.log('Error in updating: ', error);
