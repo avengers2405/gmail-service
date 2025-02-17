@@ -125,6 +125,7 @@ var work_done=false;
 const messagesSent:Promise<TelegramBot.Message>[]=[];
 bot.on('message', async (msg: Message) =>{
     try{
+        console.log('in message processing section: ', oauth2Client.credentials);
         const { credentials } = await oauth2Client.refreshAccessToken();
 
         await redis.set('oauthclient', JSON.stringify({
