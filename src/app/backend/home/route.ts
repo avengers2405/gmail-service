@@ -1,12 +1,15 @@
-import { metadata } from './../../layout';
+// import {kv} from '@vercel/kv';
 import {google} from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { NextRequest, NextResponse } from 'next/server';
 import TelegramBot, { Message } from 'node-telegram-bot-api';
+import {createClient} from 'redis';
 
 const SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly'
 ];
+
+const redis = await createClient({url: process.env.NEXT_PUBLIC_REDIS_URL}).connect();
 
 async function getRecentEmails(auth: OAuth2Client, n:number){
     const gmail = google.gmail({ version: 'v1', auth });
@@ -74,7 +77,18 @@ export async function GET(request: NextRequest){
             }
             const { tokens } = await oauth2Client.getToken(code as string);
             oauth2Client.setCredentials(tokens);
+            if (await redis.get('oauthclient')){
+                await redis.del('oauthclient');
+            }
+            await redis.set('oauthclient', JSON.stringify({
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+                scope: tokens.scope,
+                token_type: tokens.token_type,
+                expiry_date: tokens.expiry_date
+            }));
         }
+        // oauth2Client || kv.get('oauthclient');
         const emails = await getRecentEmails(oauth2Client, 7);
         return NextResponse.json({ emails });
     } catch (error){
@@ -99,6 +113,7 @@ bot.setWebHook(`${process.env.NEXT_PUBLIC_WEBSITE_URL}/backend/home`, {
 bot.on('message', async (msg: Message) =>{
     const chatID: number = msg.chat.id;
     const messageText: string= msg.text as string;
+    oauth2Client.setCredentials(JSON.parse((await redis.get('oauthclient'))??'{}'));
 
     console.log('chatID: ', chatID);
 
