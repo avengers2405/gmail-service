@@ -74,6 +74,7 @@ export async function GET(request: NextRequest){
             if (!code){
                 const authUrl = oauth2Client.generateAuthUrl({
                     access_type: 'offline', // This gets us a refresh token
+                    prompt: 'consent', // forces to show consent screen on every login, important to get refresh token every time
                     scope: SCOPES
                 });
                 return NextResponse.redirect(authUrl);
@@ -83,6 +84,13 @@ export async function GET(request: NextRequest){
             if (await redis.get('oauthclient')){
                 await redis.del('oauthclient');
             }
+            console.log('setting credentials in redis: ', JSON.stringify({
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+                scope: tokens.scope,
+                token_type: tokens.token_type,
+                expiry_date: tokens.expiry_date
+            }));
             await redis.set('oauthclient', JSON.stringify({
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
@@ -114,11 +122,22 @@ bot.setWebHook(`${process.env.NEXT_PUBLIC_WEBSITE_URL}/backend/home`, {
 });
 
 var work_done=false;
+const messagesSent:Promise<TelegramBot.Message>[]=[];
 bot.on('message', async (msg: Message) =>{
     try{
+        const { credentials } = await oauth2Client.refreshAccessToken();
+
+        await redis.set('oauthclient', JSON.stringify({
+            access_token: credentials.access_token,
+            refresh_token: credentials.refresh_token,
+            scope: credentials.scope,
+            token_type: credentials.token_type,
+            expiry_date: credentials.expiry_date
+        }));
+
         const chatID: number = msg.chat.id;
         const messageText: string= msg.text as string;
-        console.log('setting credentials for oauth2client: ', redis.get('oauthclient'));
+        console.log('setting credentials for oauth2client: ', await redis.get('oauthclient'));
         oauth2Client.setCredentials(JSON.parse((await redis.get('oauthclient'))??'{}'));
 
         console.log('chatID: ', chatID);
@@ -131,18 +150,24 @@ bot.on('message', async (msg: Message) =>{
             bot.sendMessage(chatID, 'Processing...');
             const info =messageText.split(' ');
             if (info.length>1 && info[1].toUpperCase()==info[1].toLowerCase()){
-                const data_raw = await getRecentEmails(oauth2Client, info[1] as unknown as number);
+                const data_raw = await getRecentEmails(oauth2Client, Number(info[1]));
                 // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
                 // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
-                for (var i=0; i<(info[1] as unknown as number); i+=5){
+                for (var i=0; i<(Number(info[1])); i+=5){
                     const data = data_raw.slice(i, i+5);
-                    bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });            }
+                    messagesSent.push(
+                        bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" })
+                    );
+                }
             } else {
                 const data = await getRecentEmails(oauth2Client, 7);
                 // console.log('msg to be sent: ', data.map(element => element[0]+'\r\n'+element[1]).join('\r\n'));
                 // console.log('HEREREEEREEEEEEEEEEEEEEEEE');
-                bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" });
+                messagesSent.push(
+                    bot.sendMessage(chatID, `${data.map(element => '*'+(element[0]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')+'*'+'\r\n'+(element[1]??'').replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')).join('\r\n\n')}`, { parse_mode: "MarkdownV2" })
+                );
             }
+            await Promise.all(messagesSent);
         }
     } catch(error){
         console.log('Error in bot function: ', error);
