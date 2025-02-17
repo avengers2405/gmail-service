@@ -1,10 +1,8 @@
-// import {kv} from '@vercel/kv';
 import {google} from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { NextRequest, NextResponse } from 'next/server';
 import TelegramBot, { Message } from 'node-telegram-bot-api';
 import {createClient} from 'redis';
-import { setMaxIdleHTTPParsers } from 'http';
 
 const SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly'
@@ -120,6 +118,7 @@ bot.on('message', async (msg: Message) =>{
     try{
         const chatID: number = msg.chat.id;
         const messageText: string= msg.text as string;
+        console.log('setting credentials for oauth2client: ', redis.get('oauthclient'));
         oauth2Client.setCredentials(JSON.parse((await redis.get('oauthclient'))??'{}'));
 
         console.log('chatID: ', chatID);
